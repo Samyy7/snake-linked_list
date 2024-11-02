@@ -5,14 +5,21 @@
 #include <string.h>
 
 #define MAX_SCORE 256
-#define FRAME_TIME 110000
+#define FRAME_TIME 200000
 
 typedef struct {
     int x;
     int y;
 } vec2;
 
-int score = 0;
+typedef struct Node {
+    vec2 position;
+    char data[256];
+    struct Node *prev;
+    struct Node *next;
+} Node;
+
+int  score = 0;
 char score_message[16];
 
 bool skip = false;
@@ -23,14 +30,72 @@ int screen_height = 20;
 
 // initialize screen
 WINDOW *win;
+WINDOW *input_win;
+
+// User input
+char user_input[256];
+char last_input[256];
 
 // snake
 vec2 head = { 0, 0 };
-vec2 segments[MAX_SCORE + 1];
 vec2 dir = { 1, 0 };
+
+// Node snake_body;
+Node *Head;
+Node *tail;
+
 // berry
 vec2 berry;
 
+void init_input_window() {
+    input_win = newwin(1, screen_width * 2 + 1, screen_height + 2, 0); // 1 row, full width
+    wrefresh(input_win);
+}
+
+// Function to get user input
+void get_user_input() {
+    // Clear previous input
+    memset(user_input, 0, sizeof(user_input));
+    mvwprintw(input_win, 0, 1, "Enter your Data: ");
+    wrefresh(input_win);
+    
+    // Get user input
+    wgetnstr(input_win, user_input, sizeof(user_input) - 1);
+    wclear(input_win); // Clear input window after getting input
+
+    // Store the latest input
+    strncpy(last_input, user_input, sizeof(last_input) - 1);
+    last_input[sizeof(last_input) - 1] = '\0'; // Ensure null-termination
+
+}
+
+void init_snake_body() {
+    Head = (Node*)malloc(sizeof(Node));
+    Head->position = head;
+    Head->next = NULL;
+    Head->prev = NULL;  
+    tail = Head;  
+}
+
+Node *create_node(char data[256])
+{
+    Node * new_node = (Node*)malloc(sizeof(Node));
+    strncpy(new_node->data, data, sizeof(new_node->data) - 1);
+    new_node->data[sizeof(new_node->data) - 1] = '\0';
+    new_node->next = NULL;
+    return new_node;
+}
+
+void insertNode(char data[256]) {
+    Node* newNode = create_node(data);
+    if (Head == NULL) {
+        Head = newNode;
+        tail = newNode;
+    }
+    tail->next = newNode;
+    newNode->prev = tail;
+    tail = newNode;
+}
 
 bool collide(vec2 a, vec2 b) {
     if (a.x == b.x && a.y == b.y) {
@@ -40,10 +105,13 @@ bool collide(vec2 a, vec2 b) {
 }
 
 bool collide_snake_body(vec2 point) {
-    for (int i = 0; i < score; i++) {
-        if (collide(point, segments[i])) {
+    Node *temp = Head->next;
+    while (temp!=NULL)
+    {
+        if (collide(point, temp->position)) {
             return true;
         }
+        temp = temp->next;
     }
     return false;
 }
@@ -78,19 +146,28 @@ void draw_border(int y, int x, int width, int height) {
     }
 }
 
+void free_snake() {
+    Node *current = Head;
+    while (current != NULL) {
+        Node *next = current->next;
+        free(current);
+        current = next;
+    }
+}
+
 void quit_game() {
     // exit cleanly from application
     endwin();
     // clear screen, place cursor on top, and un-hide cursor
     printf("\e[1;1H\e[2J");
     printf("\e[?25h");
-
+    free_snake();
     exit(0);
 }
 
 void restart_game() {
-    head.x = 0;
-    head.y = 0;
+    Head->position.x = 0;
+    Head->position.y = 0;
     dir.x = 1;
     dir.y = 0;
     score = 0;
@@ -99,9 +176,11 @@ void restart_game() {
 }
 
 void init() {
+    init_snake_body();
     srand(time(NULL));
     // initialize window
     win = initscr();
+    init_input_window();
     // take player input and hide cursor
     keypad(win, true);
     noecho();
@@ -120,12 +199,14 @@ void init() {
     init_pair(2, COLOR_GREEN, -1);
     init_pair(3, COLOR_YELLOW, -1);
 
-
     berry.x = rand() % screen_width;
     berry.y = rand() % screen_height;
 
     // update score message
     sprintf(score_message, "[ Score: %d ]", score);
+    // get starting value
+    get_user_input();
+
 }
 
 void process_input() {
@@ -187,34 +268,50 @@ void game_over() {
 }
 
 void update() {
-    // update snake segments
-    for (int i = score; i > 0; i--) {
-        segments[i] = segments[i - 1];
-    }
-    segments[0] = head;
 
-    // move snake
-    head.x += dir.x;
-    head.y += dir.y;
-
-    // collide with body or walls
-    if (collide_snake_body(head) || head.x < 0 || head.y < 0 \
-            || head.x >= screen_width || head.y >= screen_height) {
+    // collide with body
+    if (collide_snake_body(Head->position)) {
         is_running = false;
         game_over();
     }
 
     // eating a berry
-    if (collide(head, berry)) {
+    if (collide(Head->position, berry)) {
         if (score < MAX_SCORE) {
             score += 1;
             sprintf(score_message, "[ Score: %d ]", score);
+            insertNode(last_input);
+            get_user_input();
+
         }
         else {
             // WIN!
             printf("You Win!");
         }
         berry = spawn_berry();
+    }
+
+    // move snake
+    Node *temp = tail;
+    while (temp->prev != NULL) {
+        temp->position = temp->prev->position;
+        temp = temp->prev;
+    }
+    
+    Head->position.x += dir.x;
+    Head->position.y += dir.y;
+
+    // Wrap-around logic for walls
+    if (Head->position.x < 0) {
+        Head->position.x = screen_width - 1;
+    } else if (Head->position.x >= screen_width) {
+        Head->position.x = 0;
+    }
+
+    if (Head->position.y < 0) {
+        Head->position.y = screen_height - 1;
+    } else if (Head->position.y >= screen_height) {
+        Head->position.y = 0;
     }
 
     usleep(FRAME_TIME);
@@ -224,15 +321,19 @@ void draw() {
     erase();
 
     attron(COLOR_PAIR(1));
-    mvaddch(berry.y+1, berry.x * 2+1, '@');
+    mvaddch(berry.y+1, berry.x * 2+1, user_input[0]);
     attroff(COLOR_PAIR(1));
 
     // draw snake
     attron(COLOR_PAIR(2));
-    for (int i = 0; i < score; i++) {
-        mvaddch(segments[i].y+1, segments[i].x * 2 + 1, ACS_DIAMOND);
+    Node *temp = Head->next; // no need to draw head
+    while (temp!=NULL)
+    {
+        mvaddch(temp->position.y+1, temp->position.x * 2 + 1, temp->data[0]);
+        temp = temp->next;
     }
-    mvaddch(head.y+1, head.x * 2+1, 'O');
+    
+    mvaddch(Head->position.y+1, Head->position.x * 2+1, 'O'); // keep snake head same 
     attroff(COLOR_PAIR(2));
 
     attron(COLOR_PAIR(3));
@@ -242,22 +343,6 @@ void draw() {
 }
 
 int main(int argc, char *argv[]) {
-    // process user args
-    if (argc == 1) {}
-    else if (argc == 3) {
-        if (!strcmp(argv[1], "-d")) {
-            if (sscanf(argv[2], "%dx%d", &screen_width, &screen_height) != 2) {
-                printf("Usage: snake [options]\nOptions:\n -d [width]x[height]"
-                       "\tdefine dimensions of the screen\n\nDefault dimensions are 25x20\n");
-                exit(1);
-            }
-        }
-    }
-    else {
-        printf("Usage: snake [options]\nOptions:\n -d [width]x[height]"
-               "\tdefine dimensions of the screen\n\nDefault dimensions are 25x20\n");
-        exit(1);
-    }
 
     init();
     while(is_running) {

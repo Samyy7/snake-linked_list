@@ -1,7 +1,7 @@
-# snake-term
-Snake game in terminal written in c. Featuring adaptive resizing and colored text graphics!
+# snake-Linked_list
+Snake game in terminal written in c. Featuring Linked list!
 
-![](/images/snake.gif)
+![snake](images/snake.gif)
 
 ## Dependencies
 The only dependency is ncurses, install on debian/ubuntu via 
@@ -20,8 +20,3 @@ To run with default configuration:
 ```
   $ ./snake
 ```
-To configure the dimensions of the play area
-```
-  $ ./snake -d [width]x[height]
-```
-Any other options given will just print the help information
